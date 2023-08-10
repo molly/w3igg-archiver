@@ -1,0 +1,2 @@
+OUTPUT_DIR = "out"
+SCALING_FACTOR = 4

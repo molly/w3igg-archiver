@@ -55,3 +55,7 @@ class Database:
                 print("{} links not archived.".format(no_archives_counter))
         else:
             print("No archives to add to the entry.")
+
+    def shutdown(self):
+        # Close connection
+        firebase_admin.delete_app(self.app)

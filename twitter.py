@@ -1,3 +1,4 @@
 def archive_tweet(link):
-    # todo
+    screenshotter = link["screenshotter"]
+    screenshotter.archive_tweet(link)
     return None
