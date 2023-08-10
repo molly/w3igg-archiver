@@ -31,3 +31,27 @@ class Database:
             return {}
         else:
             print("No document with ID {}".format(entry_id))
+
+    def update_entry_with_archives(self, entry_id, archive_links):
+        doc_ref = self.client.collection("entries").document(entry_id)
+        doc = doc_ref.get()
+        entry = doc.to_dict()
+
+        change_flag = False
+        no_archives_counter = 0
+        updated_links = entry["links"].copy()
+        for idx, link in enumerate(archive_links):
+            if link is not None:
+                if link["type"] == "wayback":
+                    change_flag = True
+                    updated_links[idx]["archiveHref"] = link["href"]
+            else:
+                no_archives_counter += 1
+
+        if change_flag:
+            doc_ref.update({"links": updated_links})
+            print("Entry updated with archive links.")
+            if no_archives_counter:
+                print("{} links not archived.".format(no_archives_counter))
+        else:
+            print("No archives to add to the entry.")
