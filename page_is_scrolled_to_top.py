@@ -3,7 +3,4 @@ class page_is_scrolled_to_top(object):
 
     def __call__(self, driver):
         scroll_top = driver.execute_script("return document.documentElement.scrollTop")
-        if scroll_top == 0:
-            return True
-        else:
-            return False
+        return scroll_top == 0
