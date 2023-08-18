@@ -42,7 +42,7 @@ def archive(entry_id):
 
         links = db.get_entry_links(entry_id)
 
-        # Set up TweetScreenshotter if there are any tweets in the links, otherwise we don't need it
+        # Set up an instance of TweetScreenshotter if there are any tweets in the links, otherwise we don't need it
         if any([urlparse(link["href"]).netloc == "twitter.com" for link in links]):
             tweet_screenshotter = TweetScreenshotter()
 
@@ -53,11 +53,10 @@ def archive(entry_id):
             if urlparse(link["href"]).netloc == "twitter.com":
                 link["screenshotter"] = tweet_screenshotter
 
-        archive_link(links[0])
-        # with concurrent.futures.ThreadPoolExecutor(max_workers=len(links)) as executor:
-        #     archive_links = list(executor.map(archive_link, links))
-        #     print("Done finding archive links")
-        #     db.update_entry_with_archives(entry_id, archive_links)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(links)) as executor:
+            archive_links = list(executor.map(archive_link, links))
+            print("Done finding archive links")
+            db.update_entry_with_archives(entry_id, archive_links)
     finally:
         if db is not None:
             db.shutdown()
