@@ -1,3 +1,4 @@
+import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -32,7 +33,7 @@ class Database:
         else:
             print("No document with ID {}".format(entry_id))
 
-    def update_entry_with_archives(self, entry_id, archive_links):
+    def update_entry_with_archives(self, entry_id, storage, archive_links):
         doc_ref = self.client.collection("entries").document(entry_id)
         doc = doc_ref.get()
         entry = doc.to_dict()
@@ -45,6 +46,17 @@ class Database:
                 if link["type"] == "wayback":
                     change_flag = True
                     updated_links[idx]["archiveHref"] = link["href"]
+                elif link["type"] == "tweet":
+                    change_flag = True
+                    unique_path = os.path.join(entry_id, link["path"])
+                    upload_results = storage.upload_files(unique_path, link["path"])
+                    updated_links[idx]["archiveTweetPath"] = unique_path
+                    if "assets" in upload_results:
+                        updated_links[idx]["archiveTweetAssets"] = upload_results[
+                            "assets"
+                        ]
+                else:
+                    no_archives_counter += 1
             else:
                 no_archives_counter += 1
 
