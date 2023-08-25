@@ -34,13 +34,16 @@ class Storage:
             return None
 
         # Upload screenshot
-        screenshot_blob_path = os.path.join(unique_path, "screenshot.png")
+        screenshot_blob_path = os.path.join(unique_path, "screenshot.webp")
         screenshot_blob = self.bucket.blob(screenshot_blob_path)
-        screenshot_blob.upload_from_filename(os.path.join(local_path, "screenshot.png"))
+        screenshot_blob.upload_from_filename(
+            os.path.join(local_path, "screenshot.webp")
+        )
         result["screenshot"] = screenshot_blob_path
 
         # Upload all assets
         asset_local_filenames = os.listdir(os.path.join(local_path, "assets"))
+        asset_local_filenames.sort()
         asset_filenames = [
             {
                 "id": local_filename,
@@ -54,6 +57,6 @@ class Storage:
                 max_workers=len(asset_filenames)
             ) as executor:
                 filenames = list(executor.map(self._upload_asset, asset_filenames))
-                result["assets"] = filenames
+                result["assets"] = asset_local_filenames
 
         return result

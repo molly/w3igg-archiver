@@ -51,10 +51,16 @@ class Database:
                     unique_path = os.path.join(entry_id, link["path"])
                     upload_results = storage.upload_files(unique_path, link["path"])
                     updated_links[idx]["archiveTweetPath"] = unique_path
+                    updated_links[idx]["archiveTweetAlt"] = link["meta"]["alt"]
+                    updated_links[idx]["archiveTweetUser"] = link["meta"]["user"]
                     if "assets" in upload_results:
                         updated_links[idx]["archiveTweetAssets"] = upload_results[
                             "assets"
                         ]
+                        if "assets_alt" in link["meta"]:
+                            updated_links[idx]["archiveTweetAssetsAlt"] = link["meta"][
+                                "assets_alt"
+                            ]
                 else:
                     no_archives_counter += 1
             else:

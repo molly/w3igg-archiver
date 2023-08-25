@@ -1,18 +1,21 @@
 from constants import *
 from page_is_scrolled_to_top import page_is_scrolled_to_top
+from secrets import *
+from tweet_utils import *
 
 from PIL import Image
 from time import sleep
-import json
 import os
-import re
-import urllib
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException,
+    NoSuchElementException,
+    ElementClickInterceptedException,
+)
 
 USERNAME_XPATH = "//div[@data-testid='User-Name']//a//*[starts-with(text(), '@')]"
 
@@ -32,9 +35,14 @@ class TweetScreenshotter:
             )
 
             TweetScreenshotter.webdriver_options = webdriver.FirefoxOptions()
-            # TweetScreenshotter.webdriver_options.add_argument("--headless")
+            TweetScreenshotter.webdriver_options.add_argument("--headless")
+            TweetScreenshotter.webdriver_options.add_argument("--disable-gpu")
+            TweetScreenshotter.webdriver_options.add_argument("--window-size=600,10000")
             TweetScreenshotter.webdriver_options.set_preference(
                 "layout.css.devPixelsPerPx", str(SCALING_FACTOR)
+            )
+            TweetScreenshotter.webdriver_options.set_preference(
+                "general.useragent.override", USER_AGENT
             )
 
             TweetScreenshotter.driver = webdriver.Firefox(
@@ -89,28 +97,11 @@ class TweetScreenshotter:
                 "make sure it's not in the way."
             )
 
-    def _download_assets(self, tweet, tweet_output_dir, tweet_ind):
-        images = tweet.find_elements(By.XPATH, ".//div[@data-testid='tweetPhoto']")
-        alt_dict = {}
-        for img_ind, image in enumerate(images):
-            image_id = "{}-{}".format(tweet_ind, img_ind)
-            image_element = image.find_element(By.TAG_NAME, "img")
-            alt = image_element.get_attribute("alt")
-            if alt != "Image":
-                alt_dict[image_id] = alt
-            img_src = image_element.get_attribute("src")
-            full_size_src = re.sub(r"[?&]name=[^?&]*", r"", img_src)
-            format_match = re.search(r"[?&]format=([^?&]*)", full_size_src)
-            extension = format_match.group(1) or "webp"
-            urllib.request.urlretrieve(
-                full_size_src,
-                os.path.join(
-                    tweet_output_dir,
-                    "assets",
-                    "{}.{}".format(image_id, extension),
-                ),
-            )
-        return alt_dict
+        # Delete floating app elements that get in the way
+        try:
+            self.driver.execute_script("document.getElementById('layers').remove()")
+        except Exception:
+            pass
 
     def _capture_thread(self, tweets, tweet_output_dir):
         user = tweets[0].find_element(By.XPATH, USERNAME_XPATH)
@@ -127,19 +118,33 @@ class TweetScreenshotter:
             last_tweet_index += 1
 
         # Capture images
-        alt_dict = {}
+        assets_alt = {}
         for ind, tweet in enumerate(tweets[:last_tweet_index]):
-            alt = self._download_assets(tweet, tweet_output_dir, ind)
-            alt_dict.update(alt)
-        if len(alt_dict) > 0:
-            with open(os.path.join(tweet_output_dir, "alt_text.json"), "w") as json_out:
-                json.dump(alt_dict, json_out)
+            alt = download_assets_from_tweet(tweet, tweet_output_dir, ind)
+            assets_alt.update(alt)
 
-        # Click on last tweet in thread to get reply box out of the way
-        last_tweet_link = tweets[last_tweet_index].find_element(
-            By.CSS_SELECTOR, "a > time"
-        )
-        last_tweet_link.click()
+        # Get alt text and metadata
+        meta = {
+            "user": tweeter,
+            "alt": "\n\n".join(
+                [get_tweet_alt_text(t) for t in tweets[:last_tweet_index]]
+            ),
+        }
+        if len(assets_alt):
+            meta["assets_alt"] = assets_alt
+
+        try:
+            # Click on last tweet in thread to get reply box out of the way
+            last_tweet_link = tweets[last_tweet_index].find_element(
+                By.CSS_SELECTOR, "a > time"
+            )
+            last_tweet_link.click()
+        except ElementClickInterceptedException:
+            print(
+                "Something went wrong clicking on last tweet, screenshot saved to error.png"
+            )
+            self.driver.save_full_page_screenshot("error.png")
+
         try:
             WebDriverWait(self.driver, 10).until(
                 expected_conditions.invisibility_of_element_located(
@@ -172,11 +177,15 @@ class TweetScreenshotter:
         # Get screenshot and crop to bottom boundary
         # No sleep needed since the page should already be loaded
         screenshot_path = os.path.join(tweet_output_dir, "screenshot.png")
+        screenshot_path_webp = os.path.join(tweet_output_dir, "screenshot.webp")
         timeline.screenshot(screenshot_path)
 
         with Image.open(screenshot_path) as image:
             cropped = image.crop((0, 0, image.width, bottom_boundary - 20))
-            cropped.save(screenshot_path)
+            convert_pil_image_to_webp(cropped, screenshot_path_webp)
+        os.remove(screenshot_path)
+
+        return meta
 
     def archive_tweet(self, link):
         url = link["href"]
@@ -209,20 +218,33 @@ class TweetScreenshotter:
 
         if "tweet thread" in link_text:
             print("Capturing tweet thread for link {}.".format(link_index))
-            self._capture_thread(tweets, tweet_output_dir)
+            metadata = self._capture_thread(tweets, tweet_output_dir)
         else:
             # Just one tweet to capture.
+            # TODO: Handle reply case
             print("Capturing tweet for link {}.".format(link_index))
             tweet = tweets[0]
-            alt_dict = self._download_assets(tweet, 0)
-            if len(alt_dict) > 0:
-                with open(os.path.join(OUTPUT_DIR, "alt_text.json"), "w") as json_out:
-                    json.dump(alt_dict, json_out)
+
+            # Download assets from tweet
+            assets_alt = download_assets_from_tweet(tweet, tweet_output_dir, 0)
+
+            # Get alt text
+            user = tweet.find_element(By.XPATH, USERNAME_XPATH)
+            tweeter = user.text
+            metadata = {
+                "user": tweeter,
+                "alt": get_tweet_alt_text(tweet),
+            }
+            if len(assets_alt):
+                metadata["assets_alt"] = assets_alt
 
             sleep(1)  # Janky, but this gives images/etc. an extra second to load
             screenshot_path = os.path.join(tweet_output_dir, "screenshot.png")
+            screenshot_path_webp = os.path.join(tweet_output_dir, "screenshot.webp")
             tweet.screenshot(screenshot_path)
-        return {"type": "tweet", "path": link_index}
+            convert_file_to_webp(screenshot_path, screenshot_path_webp)
+
+        return {"type": "tweet", "path": link_index, "meta": metadata}
 
     def shutdown(self):
         if self.driver is not None:
