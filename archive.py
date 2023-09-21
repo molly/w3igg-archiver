@@ -2,13 +2,14 @@ import argparse
 import concurrent.futures
 import os
 import shutil
-from urllib.parse import urlparse
 
 from constants import *
-from database import Database
-from storage import Storage
-from tweet_screenshotter import TweetScreenshotter
+from Database import Database
+from TweetScreenshotter import TweetScreenshotter
 from wayback import archive_url
+
+from EntryLink import EntryLink
+from TweetEntryLink import TweetEntryLink
 
 
 def cleanup():
@@ -19,48 +20,42 @@ def cleanup():
     os.mkdir(OUTPUT_DIR)
 
 
-def archive_link(link):
-    if "screenshotter" in link:
-        return link["screenshotter"].archive_tweet(link)
+def archive_link(link: EntryLink) -> None:
+    """
+    Delegate archiving based on whether the link is a tweet or something else. Helper function passed to the thread
+    pool executor.
+    :param link: One link in a W3IGG entry.
+    :return: None
+    """
+    if isinstance(link, TweetEntryLink):
+        TweetScreenshotter().archive_tweet(link)
     else:
-        return archive_url(link)
+        archive_url(link)
 
 
-def archive(entry_id):
-    db = None
-    storage = None
-    tweet_screenshotter = None
-    try:
-        if entry_id is None:
-            print("Entry ID required.")
-            return
+def archive(entry_id: str) -> None:
+    """Archive all links in the post with the specified entry_id.
+    :param entry_id: Date-formatted entry ID (YYYY-MM-DD-ID)
+    :return: None
+    """
+    if entry_id is None:
+        print("Entry ID required.")
+        return
 
-        cleanup()
-        db = Database()
+    cleanup()
+    db = Database()
 
-        links = db.get_entry_links(entry_id)
+    links: list[EntryLink] = db.get_entry_links(entry_id)
 
-        # Set up an instance of TweetScreenshotter if there are any tweets in the links, otherwise we don't need it
-        if any([urlparse(link["href"]).netloc == "twitter.com" for link in links]):
-            tweet_screenshotter = TweetScreenshotter()
-            storage = Storage()
+    # Add an index parameter to the links to help with logging
+    # Pass along screenshotter instance for tweets
+    for idx, link in enumerate(links):
+        link.index = idx
 
-        # Add an index parameter to the links to help with logging
-        # Pass along screenshotter instance for tweets
-        for idx, link in enumerate(links):
-            link["index"] = idx
-            if urlparse(link["href"]).netloc == "twitter.com":
-                link["screenshotter"] = tweet_screenshotter
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(links)) as executor:
-            archive_links = list(executor.map(archive_link, links))
-            print("Done finding archive links")
-            db.update_entry_with_archives(entry_id, storage, archive_links)
-    finally:
-        if db is not None:
-            db.shutdown()
-        if tweet_screenshotter is not None:
-            tweet_screenshotter.shutdown()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(links)) as executor:
+        executor.map(archive_link, links)
+    print("Done finding archive links")
+    db.update_entry_with_archives(entry_id, links)
 
 
 if __name__ == "__main__":
