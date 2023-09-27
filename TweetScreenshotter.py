@@ -41,7 +41,7 @@ class TweetScreenshotter:
             )
 
             TweetScreenshotter.webdriver_options = webdriver.FirefoxOptions()
-            # TweetScreenshotter.webdriver_options.add_argument("--headless")
+            TweetScreenshotter.webdriver_options.add_argument("--headless")
             TweetScreenshotter.webdriver_options.add_argument("--disable-gpu")
             TweetScreenshotter.webdriver_options.add_argument("--window-size=600,10000")
             TweetScreenshotter.webdriver_options.set_preference(
@@ -90,12 +90,14 @@ class TweetScreenshotter:
                         )
                     )
                 )
-                if self.driver.find_element(
-                    By.CSS_SELECTOR, "*[data-testid='error-detail']"
-                ):
+                try:
+                    self.driver.find_element(
+                        By.CSS_SELECTOR, "*[data-testid='error-detail']"
+                    )
                     print("Tweet was deleted.")
                     return False
-                return True
+                except NoSuchElementException:
+                    return True
             except TimeoutException:
                 print(
                     "Timed out waiting to load tweet. Link #{}: {}".format(
