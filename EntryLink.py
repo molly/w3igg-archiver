@@ -3,6 +3,8 @@ class EntryLink:
         self.href = link["href"]
         self.link_text = link["linkText"]
         self.extra_text = link.get("extraText", None)
+
+        self.force_overwrite = False
         self._index = None
         self._index_str = None
 

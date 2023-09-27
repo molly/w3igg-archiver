@@ -99,3 +99,20 @@ class Database:
                 print("{} links not archived.".format(no_archives_counter))
         else:
             print("No archives to add to the entry.")
+
+    def get_all_entry_ids(self, start: str = None) -> list[str]:
+        """
+        Get a list of all IDs for all entries.
+        :param start: Optional start ID at which to start parsing
+        :return List of date-style entry IDs.
+        """
+        ids = []
+        docs_ref = self.client.collection("entries").order_by(
+            "id", direction=firestore.Query.DESCENDING
+        )
+        if start:
+            docs_ref = docs_ref.start_at({"id": start})
+        docs = docs_ref.stream()
+        for doc in docs:
+            ids.append(doc.get("id"))
+        return ids

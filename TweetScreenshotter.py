@@ -9,6 +9,7 @@ from TweetEntryLink import TweetEntryLink
 
 from PIL import Image
 from time import sleep
+from typing import Optional
 import os
 
 from selenium import webdriver
@@ -22,6 +23,7 @@ from selenium.common.exceptions import (
 )
 
 USERNAME_XPATH = "//div[@data-testid='User-Name']//a//*[starts-with(text(), '@')]"
+TWEET_LINK_XPATH = ".//a[contains(@href, '{}')]//time"
 
 
 class TweetScreenshotter:
@@ -39,7 +41,7 @@ class TweetScreenshotter:
             )
 
             TweetScreenshotter.webdriver_options = webdriver.FirefoxOptions()
-            TweetScreenshotter.webdriver_options.add_argument("--headless")
+            # TweetScreenshotter.webdriver_options.add_argument("--headless")
             TweetScreenshotter.webdriver_options.add_argument("--disable-gpu")
             TweetScreenshotter.webdriver_options.add_argument("--window-size=600,10000")
             TweetScreenshotter.webdriver_options.set_preference(
@@ -58,9 +60,51 @@ class TweetScreenshotter:
         self.webdriver_options = TweetScreenshotter.webdriver_options
         self.driver = TweetScreenshotter.driver
 
-    def __del__(self):
-        if self.driver is not None:
-            self.driver.quit()
+    @staticmethod
+    def shutdown():
+        if TweetScreenshotter.driver:
+            try:
+                TweetScreenshotter.driver.quit()
+            except FileNotFoundError:
+                # This is messy for some reason I can't identify yet
+                pass
+            except Exception as e:
+                pass
+
+    def _get_tweet(self, link: TweetEntryLink) -> bool:
+        """
+        Load the tweet specified in the link.
+        :param link: URL of tweet
+        :return: Boolean representing if the load succeeded.
+        """
+        # Find tweet
+        tweet_link_xpath = TWEET_LINK_XPATH.format(urlparse(link.href).path)
+        for i in range(3):
+            self.driver.get(link.href)
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    expected_conditions.presence_of_element_located(
+                        (
+                            By.XPATH,
+                            tweet_link_xpath + "| //*[@data-testid='error-detail']",
+                        )
+                    )
+                )
+                if self.driver.find_element(
+                    By.CSS_SELECTOR, "*[data-testid='error-detail']"
+                ):
+                    print("Tweet was deleted.")
+                    return False
+                return True
+            except TimeoutException:
+                print(
+                    "Timed out waiting to load tweet. Link #{}: {}".format(
+                        link.index, link.href
+                    )
+                )
+                pass
+        print("Tried 3 times to load link #{}, giving up.".format(link.index))
+        return False
 
     def _clear_overlays(self):
         """
@@ -115,16 +159,35 @@ class TweetScreenshotter:
         except Exception:
             pass
 
-    def _capture_thread(
-        self,
+    @staticmethod
+    def _find_tweet_index_in_thread(
         tweets: list[selenium.webdriver.remote.webelement.WebElement],
-        tweet_output_dir: str,
-    ) -> object:
+        link: TweetEntryLink,
+    ) -> int:
         """
-        Capture a full thread of tweets, saving screenshots and assets to the specified tweet_output_dir
-        :param tweets: Tweets on this page, some of which are tweets in the thread to capture
-        :param tweet_output_dir: Output directory to save screenshots and assets
-        :return: Object containing tweet alt text, links, and optionally asset alt text if it exists
+        Find the index of the specified link in the list of tweets supplied.
+        :param tweets: List of tweets to search
+        :param link: Link to find in list of tweets
+        :return: Index of the tweet in the list, or None if not found.
+        """
+        tweet_link_xpath = TWEET_LINK_XPATH.format(urlparse(link.href).path)
+        for ind, tweet in enumerate(tweets):
+            try:
+                el = tweet.find_element(By.XPATH, tweet_link_xpath)
+                return ind
+            except NoSuchElementException:
+                pass
+        # Something went wrong, but fall back to assuming it's the first tweet if so
+        return 0
+
+    @staticmethod
+    def _find_end_of_thread_by_user(
+        tweets: list[selenium.webdriver.remote.webelement.WebElement],
+    ) -> int:
+        """
+        Find the last tweet by the original thread author in the supplied list of tweets.
+        :param tweets: List of tweets to search
+        :return: Index of the last tweet by the original author
         """
         user = tweets[0].find_element(By.XPATH, USERNAME_XPATH)
         tweeter = user.text
@@ -138,15 +201,29 @@ class TweetScreenshotter:
             if username.text != tweeter:
                 break
             last_tweet_index += 1
+        return last_tweet_index
 
+    def _capture_thread(
+        self,
+        tweets: list[selenium.webdriver.remote.webelement.WebElement],
+        last_tweet_index: int,
+        tweet_output_dir: str,
+    ) -> object:
+        """
+        Capture a full thread of tweets, saving screenshots and assets to the specified tweet_output_dir
+        :param tweets: Tweets on this page, some of which are tweets in the thread to capture
+        :param last_tweet_index: Index of the last tweet to capture
+        :param tweet_output_dir: Output directory to save screenshots and assets
+        :return: Object containing tweet alt text, links, and optionally asset alt text if it exists
+        """
         # Capture images and their alt text (if supplied)
         assets_alt = {}
-        for ind, tweet in enumerate(tweets[:last_tweet_index]):
+        for ind, tweet in enumerate(tweets[: last_tweet_index + 1]):
             alt = download_assets_from_tweet(tweet, tweet_output_dir, ind)
             assets_alt.update(alt)
 
         # Get alt text and metadata
-        meta = scrape_links_and_alt_text_from_tweets(tweets[:last_tweet_index])
+        meta = scrape_links_and_alt_text_from_tweets(tweets[: last_tweet_index + 1])
         if len(assets_alt):
             meta["assets_alt"] = assets_alt
 
@@ -183,9 +260,7 @@ class TweetScreenshotter:
         )
 
         # Find bottom boundary
-        cutoff_element = self.driver.find_element(
-            By.CSS_SELECTOR, "label[data-testid='tweetTextarea_0_label']"
-        )
+        cutoff_element = self.driver.find_element(By.XPATH, "//span[text()='Views']")
         bottom_boundary = cutoff_element.rect["y"] * SCALING_FACTOR
 
         # Get screenshot and crop to bottom boundary
@@ -195,7 +270,7 @@ class TweetScreenshotter:
         timeline.screenshot(screenshot_path)
 
         with Image.open(screenshot_path) as image:
-            cropped = image.crop((0, 0, image.width, bottom_boundary - 20))
+            cropped = image.crop((0, 0, image.width, bottom_boundary + 70))
             convert_pil_image_to_webp(cropped, screenshot_path_webp)
         os.remove(screenshot_path)
 
@@ -210,55 +285,67 @@ class TweetScreenshotter:
         """
         print("Archiving tweet or tweet thread for link {}.".format(link.index))
 
-        # Find tweet
-        self.driver.get(link.href)
-        try:
-            WebDriverWait(self.driver, 10).until(
-                expected_conditions.presence_of_element_located(
-                    (By.CSS_SELECTOR, "div[data-testid='tweetText']")
-                )
+        success = self._get_tweet(link)
+        if success:
+            self._clear_overlays()
+            link_text = link.link_text.lower()
+            tweets = self.driver.find_elements(
+                By.CSS_SELECTOR, "article[data-testid='tweet']"
             )
-        except TimeoutException:
-            print(
-                "Timed out waiting to load tweet. Link #{}: {}".format(
-                    link.index, link.href
-                )
-            )
-        self._clear_overlays()
-        link_text = link.link_text.lower()
-        tweets = self.driver.find_elements(
-            By.CSS_SELECTOR, "article[data-testid='tweet']"
-        )
 
-        # Set up directories to store screenshot/assets
-        tweet_output_dir = os.path.join(OUTPUT_DIR, link.index_str)
-        os.mkdir(tweet_output_dir)
-        os.mkdir(os.path.join(tweet_output_dir, "assets"))
+            try:
+                # Set up directories to store screenshot/assets
+                tweet_output_dir = os.path.join(OUTPUT_DIR, link.index_str)
+                os.mkdir(tweet_output_dir)
+                os.mkdir(os.path.join(tweet_output_dir, "assets"))
 
-        if "tweet thread" in link_text:
-            print("Capturing tweet thread for link {}.".format(link.index))
-            metadata = self._capture_thread(tweets, tweet_output_dir)
-            link.archive_tweet_alt = metadata["alt"]
-            link.archive_tweet_links = metadata["links"]
-            link.archive_tweet_assets_alt = metadata.get("assets_alt", {})
-        else:
-            # Just one tweet to capture.
-            # TODO: Handle reply case
-            print("Capturing tweet for link {}.".format(link.index))
-            tweet = tweets[0]
+                if "tweet thread" in link_text or "tweets" in link_text:
+                    print("Capturing tweet thread for link {}.".format(link.index))
+                    last_tweet_index = self._find_end_of_thread_by_user(tweets)
+                    metadata = self._capture_thread(
+                        tweets, last_tweet_index, tweet_output_dir
+                    )
+                    link.archive_tweet_alt = metadata["alt"]
+                    link.archive_tweet_links = metadata["links"]
+                    link.archive_tweet_assets_alt = metadata.get("assets_alt", {})
+                else:
+                    last_tweet_index = self._find_tweet_index_in_thread(tweets, link)
+                    if last_tweet_index != 0:
+                        # The tweet we want to capture is a reply that's not first in the thread
+                        print("Capturing tweet thread for link {}.".format(link.index))
+                        metadata = self._capture_thread(
+                            tweets, last_tweet_index, tweet_output_dir
+                        )
+                        link.archive_tweet_alt = metadata["alt"]
+                        link.archive_tweet_links = metadata["links"]
+                        link.archive_tweet_assets_alt = metadata.get("assets_alt", {})
 
-            # Download assets from tweet
-            assets_alt = download_assets_from_tweet(tweet, tweet_output_dir, 0)
+                    else:
+                        # Just one tweet to capture, and it's the first in the thread
+                        print("Capturing tweet for link {}.".format(link.index))
+                        tweet = tweets[0]
 
-            # Get alt text
-            link.archive_tweet_alt = get_tweet_alt_text(tweet)
-            link.archive_tweet_links = {"0": get_tweet_links()}
-            if len(assets_alt):
-                link.archive_tweet_assets_alt = assets_alt
+                        # Download assets from tweet
+                        assets_alt = download_assets_from_tweet(
+                            tweet, tweet_output_dir, 0
+                        )
 
-            sleep(1)  # Janky, but this gives images/etc. an extra second to load
-            screenshot_path = os.path.join(tweet_output_dir, "screenshot.png")
-            screenshot_path_webp = os.path.join(tweet_output_dir, "screenshot.webp")
-            tweet.screenshot(screenshot_path)
-            convert_file_to_webp(screenshot_path, screenshot_path_webp)
-        return
+                        # Get alt text
+                        link.archive_tweet_alt = get_tweet_alt_text(tweet)
+                        link.archive_tweet_links = {"0": get_tweet_links(tweet)}
+                        if len(assets_alt):
+                            link.archive_tweet_assets_alt = assets_alt
+
+                        sleep(
+                            1
+                        )  # Janky, but this gives images/etc. an extra second to load
+                        screenshot_path = os.path.join(
+                            tweet_output_dir, "screenshot.png"
+                        )
+                        screenshot_path_webp = os.path.join(
+                            tweet_output_dir, "screenshot.webp"
+                        )
+                        tweet.screenshot(screenshot_path)
+                        convert_file_to_webp(screenshot_path, screenshot_path_webp)
+            except Exception as e:
+                print(e)

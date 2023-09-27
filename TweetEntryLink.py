@@ -5,12 +5,11 @@ from EntryLink import EntryLink
 class TweetEntryLink(EntryLink):
     def __init__(self, link: dict):
         super().__init__(link)
-        self.archive_bucket_path = None
-        self.archive_tweet_alt = None
+        self.archive_bucket_path = link.get("archiveTweetPath")
+        self.archive_tweet_alt = link.get("archiveTweetAlt")
+        self._archive_tweet_assets = link.get("archiveTweetAssets", {})
 
-        self._archive_tweet_assets = (
-            {}
-        )  # Calculated value combining the following three:
+        # Used to construct archiveTweetAssets field
         self.archive_tweet_assets_paths = []
         self.archive_tweet_assets_alt = {}
         self.archive_tweet_links = {}
@@ -73,22 +72,34 @@ class TweetEntryLink(EntryLink):
         if self.archive_tweet_links:
             for key in self.archive_tweet_links.keys():
                 key_str = str(key)
-                if key_str in self._archive_tweet_assets:
-                    self._archive_tweet_assets[key_str][
-                        "links"
-                    ] = self.archive_tweet_links[key]
-                else:
-                    self._archive_tweet_assets[key_str] = {
-                        "links": self.archive_tweet_links[key]
-                    }
+                if len(self.archive_tweet_links[key]):
+                    if key_str in self._archive_tweet_assets:
+                        self._archive_tweet_assets[key_str][
+                            "links"
+                        ] = self.archive_tweet_links[key]
+                    else:
+                        self._archive_tweet_assets[key_str] = {
+                            "links": self.archive_tweet_links[key]
+                        }
 
     def get_link_for_database(self) -> object:
         """Return object formatted to fit the database schema."""
-        return {
+        db_data = {
             "href": self.href,
             "linkText": self.link_text,
             "extraText": self.extra_text,
             "archiveTweetAlt": self.archive_tweet_alt,
-            "archiveTweetAssets": self.archive_tweet_assets,
             "archiveTweetPath": self.archive_bucket_path,
         }
+        if self.archive_tweet_assets:
+            db_data["archiveTweetAssets"] = self.archive_tweet_assets
+        return db_data
+
+    def clear_old_archive_data(self) -> None:
+        """Clear old archive data to avoid accidentally keeping outdated info if we're going to re-archive."""
+        self.archive_bucket_path = None
+        self.archive_tweet_alt = None
+        self._archive_tweet_assets = {}
+        self.archive_tweet_assets_paths = []
+        self.archive_tweet_assets_alt = {}
+        self.archive_tweet_links = {}

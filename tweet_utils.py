@@ -29,7 +29,9 @@ def download_assets_from_tweet(
         }
       }
     """
-    images = tweet.find_elements(By.XPATH, ".//div[@data-testid='tweetPhoto']")
+    images = tweet.find_elements(
+        By.XPATH, ".//div[@data-testid='tweetPhoto'][not(.//video)]"
+    )
     alt_dict = {}
     for img_ind, image in enumerate(images):
         image_id = "{}-{}".format(tweet_ind, img_ind)

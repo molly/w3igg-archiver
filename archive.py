@@ -9,6 +9,7 @@ from TweetScreenshotter import TweetScreenshotter
 from wayback import archive_url
 
 from EntryLink import EntryLink
+from ArchivableEntryLink import ArchivableEntryLink
 from TweetEntryLink import TweetEntryLink
 
 
@@ -28,14 +29,35 @@ def archive_link(link: EntryLink) -> None:
     :return: None
     """
     if isinstance(link, TweetEntryLink):
-        TweetScreenshotter().archive_tweet(link)
-    else:
-        archive_url(link)
+        if link.archive_bucket_path is None:
+            TweetScreenshotter().archive_tweet(link)
+        elif link.force_overwrite:
+            link.clear_old_archive_data()
+            TweetScreenshotter().archive_tweet(link)
+        else:
+            print(
+                "Not archiving link {}, as it's already been archived. Use --force-overwrite to re-archive.".format(
+                    link.index
+                )
+            )
+    elif isinstance(link, ArchivableEntryLink):
+        if link.archive_href is None:
+            archive_url(link)
+        elif link.force_overwrite:
+            link.clear_old_archive_data()
+            archive_url(link)
+        else:
+            print(
+                "Not archiving link {}, as it's already been archived. Use --force-overwrite to re-archive.".format(
+                    link.index
+                )
+            )
 
 
-def archive(entry_id: str) -> None:
+def archive(entry_id: str, force_overwrite: bool = False) -> None:
     """Archive all links in the post with the specified entry_id.
     :param entry_id: Date-formatted entry ID (YYYY-MM-DD-ID)
+    :param force_overwrite: Whether to re-archive links even if they've already been archived
     :return: None
     """
     if entry_id is None:
@@ -51,11 +73,13 @@ def archive(entry_id: str) -> None:
     # Pass along screenshotter instance for tweets
     for idx, link in enumerate(links):
         link.index = idx
+        link.force_overwrite = force_overwrite
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(links)) as executor:
-        executor.map(archive_link, links)
+    for link in links:
+        archive_link(link)
     print("Done finding archive links")
     db.update_entry_with_archives(entry_id, links)
+    TweetScreenshotter.shutdown()
 
 
 if __name__ == "__main__":
@@ -63,5 +87,12 @@ if __name__ == "__main__":
         description="Archive links in a given Web3 is Going Just Great entry."
     )
     parser.add_argument("entry_id", help="ID of the W3IGG entry, in numerical format.")
+    parser.add_argument(
+        "--force-overwrite",
+        help="Re-archive links even if they've already been archived",
+        action="store_true",
+        default=False,
+        required=False,
+    )
     args = parser.parse_args()
     archive(**vars(args))

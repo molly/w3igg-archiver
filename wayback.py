@@ -59,7 +59,7 @@ def archive_url(link: ArchivableEntryLink) -> None:
             link.archive_href = newest.archive_url
     except NoCDXRecordFound:
         print("Link {} has no archived copies.".format(link.index))
-        return save_url(link)
+        link.archive_href = save_url(link)
     except WaybackError as e:
         print(e)
     return None
