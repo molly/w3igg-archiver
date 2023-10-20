@@ -262,7 +262,9 @@ class TweetScreenshotter:
         )
 
         # Find bottom boundary
-        cutoff_element = self.driver.find_element(By.XPATH, "//span[text()='Views']")
+        cutoff_element = self.driver.find_element(
+            By.XPATH, "//time[contains(text(), '·')]"
+        )
         bottom_boundary = cutoff_element.rect["y"] * SCALING_FACTOR
 
         # Get screenshot and crop to bottom boundary
