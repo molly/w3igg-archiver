@@ -75,6 +75,7 @@ def archive(entry_id: str, force_overwrite: bool = False) -> None:
         link.index = idx
         link.force_overwrite = force_overwrite
 
+    # TODO: Thread this once the kinks are ironed out
     for link in links:
         archive_link(link)
     print("Done finding archive links")

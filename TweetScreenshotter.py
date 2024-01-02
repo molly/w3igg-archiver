@@ -9,7 +9,6 @@ from TweetEntryLink import TweetEntryLink
 
 from PIL import Image
 from time import sleep
-from typing import Optional
 import os
 
 from selenium import webdriver
@@ -41,6 +40,7 @@ class TweetScreenshotter:
             )
 
             TweetScreenshotter.webdriver_options = webdriver.FirefoxOptions()
+            TweetScreenshotter.webdriver_options.profile = profile
             TweetScreenshotter.webdriver_options.add_argument("--headless")
             TweetScreenshotter.webdriver_options.add_argument("--disable-gpu")
             TweetScreenshotter.webdriver_options.add_argument("--window-size=600,10000")
@@ -52,9 +52,7 @@ class TweetScreenshotter:
             )
 
             TweetScreenshotter.driver = webdriver.Firefox(
-                profile,
                 options=TweetScreenshotter.webdriver_options,
-                service_log_path="/dev/null",
             )
             TweetScreenshotter.driver.set_window_size(600, 10000)
         self.webdriver_options = TweetScreenshotter.webdriver_options
