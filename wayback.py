@@ -5,6 +5,7 @@ from waybackpy.exceptions import (
     WaybackError,
     NoCDXRecordFound,
     MaximumSaveRetriesExceeded,
+    TooManyRequestsError
 )
 
 from ArchivableEntryLink import ArchivableEntryLink
@@ -24,7 +25,7 @@ def save_url(link: ArchivableEntryLink) -> Optional[str]:
         archive_href = save_api.save()
         print("Saved copy of link {}".format(link.index))
         return archive_href
-    except MaximumSaveRetriesExceeded as e:
+    except (MaximumSaveRetriesExceeded, TooManyRequestsError) as e:
         print(
             "Archive link {} ({}) exceeded max retries. {}".format(
                 link.index, link.href, e
